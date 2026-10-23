@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="xterm.css">
+<style>
+  html, body { margin: 0; height: 100%; background: #10121a; }
+  #wrap { position: absolute; inset: 0; padding: 6px; box-sizing: border-box; }
+  #term { width: 100%; height: 100%; }
+  .xterm .xterm-viewport { background: #10121a !important; }
+</style>
+</head>
+<body>
+<div id="wrap"><div id="term"></div></div>
+<script src="xterm.js"></script>
+<script src="addon-fit.js"></script>
+<script>
+(function () {
+  const term = new Terminal({
+    fontFamily: "Menlo, monospace",
+    fontSize: 13,
+    cursorBlink: true,
+    theme: {
+      background: "#10121a",
+      foreground: "#e5e5e5",
+      cursor: "#f5a623",
+      black: "#2e3440", red: "#e05b5b", green: "#9ece6a",
+      yellow: "#e0af68", blue: "#7aa2f7", magenta: "#bb9af7",
+      cyan: "#7dcfff", white: "#d5d6de"
+    }
+  });
+  const fit = new FitAddon.FitAddon();
+  term.loadAddon(fit);
+  term.open(document.getElementById("term"));
+  function doFit() {
+    try { fit.fit(); } catch (e) {}
+  }
+  window.addEventListener("resize", doFit);
+  if (window.ResizeObserver) {
+    new ResizeObserver(doFit).observe(document.body);
+  }
+  doFit();
+
+  // 입력 → 브릿지 전달 (base64)
+  function post(obj) {
+    const s = "webkit.messageHandlers";
+    const bridge = window.webkit && window.webkit[s];
+    if (bridge) bridge.postMessage(JSON.stringify(obj));
+  }
+  term.onData(function (d) {
+    const b64 = btoa(unescape(encodeURIComponent(d)));
+    post({ t: "input", d: b64 });
+  });
+  // 사이즈 → 브릿지 전달
+  function postResize() {
+    post({ t: "resize", cols: term.cols, rows: term.rows });
+  }
+  term.onResize(postResize);
+  doFit();
+  setTimeout(postResize, 200);
+  setTimeout(postResize, 800);
+
+  // Swift → xterm: 서버 출력 주입 (base64)
+  window.termIn = function (b64) {
+    const raw = atob(b64);
+    const u8 = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) u8[i] = raw.charCodeAt(i);
+    term.write(u8);
+  };
+  window.term = term;
+})();
+</script>
+</body>
+</html>

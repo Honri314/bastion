@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>VM 콘솔</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; }
+  #screen { width: 100vw; height: 100vh; }
+  #status { position: fixed; top: 8px; left: 10px; color: #9aa0ab; font: 12px system-ui; z-index: 5; }
+</style>
+</head>
+<body>
+<div id="status">연결 준비 중...</div>
+<div id="screen"></div>
+
+<script>
+const qs = new URLSearchParams(location.search);
+const NODE = qs.get('node');
+const VMID = parseInt(qs.get('vmid'), 10);
+const $status = document.getElementById('status');
+const status = (s) => { $status.textContent = s; };
+
+/* 메인 프로세스 웹소켓 브릿지를 WebSocket처럼 보이게 하는 셸 */
+window.WebSocket = (function () {
+  function BridgeWS(url, protocols) {
+    this.protocol = (typeof protocols === 'string') ? protocols : (protocols && protocols[0]) || 'binary';
+    this.binaryType = 'arraybuffer';
+    this.readyState = 0;
+    this.bufferedAmount = 0;
+    this.extensions = '';
+    this.onopen = null; this.onmessage = null; this.onclose = null; this.onerror = null;
+    const self = this;
+    const id = window.__vncId;
+    if (id == null) {
+      setTimeout(() => self.onerror && self.onerror({ message: '브릿지 미준비' }), 0);
+      return;
+    }
+    window.pve.vncData(id, (b64) => {
+      if (self.readyState !== 1) return;
+      const raw = atob(b64);
+      const u8 = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) u8[i] = raw.charCodeAt(i);
+      if (self.onmessage) self.onmessage({ data: u8.buffer });
+    });
+    window.pve.vncClosed(id, (reason) => {
+      self.readyState = 3;
+      if (self.onclose) self.onclose({ code: 1006, reason });
+    });
+    // 메인에서 vncwebsocket 연결+인증("OK") 완료 → open
+    window.pve.vncReady(id, () => {
+      self.readyState = 1;
+      if (self.onopen) self.onopen();
+      status('');
+    });
+    self.send = function (data) {
+      let u8;
+      if (typeof data === 'string') u8 = new TextEncoder().encode(data);
+      else if (data instanceof ArrayBuffer) u8 = new Uint8Array(data);
+      else u8 = new Uint8Array(data.buffer || data);
+      let s = '';
+      for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
+      window.pve.vncSend(id, btoa(s));
+    };
+    self.close = function () { self.readyState = 3; window.pve.vncClose(id); };
+    self.isOpen = function () { return self.readyState === 1; };
+  }
+  return BridgeWS;
+})();
+
+(async () => {
+  status(`vncproxy 생성 중 (${NODE} VM ${VMID})...`);
+  const res = await window.pve.vncPrepare(NODE, VMID);
+  if (!res.ok) { status(`실패: ${res.error}`); return; }
+  window.__vncId = res.id;
+
+  const RFB = (await import('https://cdn.jsdelivr.net/npm/@novnc/novnc@1.5.0/core/rfb.js')).default;
+  const rfb = new RFB(document.getElementById('screen'), 'bridge://pve', { shared: true, resizeSession: true });
+  rfb.addEventListener('connect', () => status('RFB 연결됨'));
+  rfb.addEventListener('disconnect', (e) => status(`RFB 끊김: ${e.detail && e.detail.reason || ''}`));
+  rfb.scaleViewport = true;
+  rfb.background = '#000';
+})();
+</script>
+</body>
+</html>

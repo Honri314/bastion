@@ -1,0 +1,21 @@
+{
+  "name": "bastion-pve",
+  "version": "1.0.0",
+  "description": "Bastion — Proxmox VE 관리 프로그램 (Windows / Electron)",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win portable"
+  },  "build": {
+    "appId": "kr.park.bastion",
+    "productName": "Bastion",
+    "win": { "target": "nsis" }
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

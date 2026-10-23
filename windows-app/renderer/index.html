@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>Bastion</title>
+<link rel="stylesheet" href="vendor/xterm.css" />
+<style>
+  :root {
+    --bg: #16181d; --panel: #1e2128; --line: #2c303a;
+    --text: #e6e6e6; --muted: #9aa0ab; --accent: #f5a623; --green: #46c78f; --red: #e05b5b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; }
+
+  #login-overlay {
+    position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 50;
+  }
+  #login-card { width: 400px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 26px; }
+  #login-card h1 { font-size: 20px; margin: 0 0 4px; }
+  #login-card .sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+  #login-card label { font-size: 12px; color: var(--muted); display: block; margin: 10px 0 4px; }
+  #login-card input, #login-card select {
+    width: 100%; padding: 9px 10px; border-radius: 7px; border: 1px solid var(--line);
+    background: #14161b; color: var(--text); font-size: 14px;
+  }
+  #login-card button {
+    width: 100%; margin-top: 18px; padding: 10px; border: 0; border-radius: 8px;
+    background: var(--accent); color: #14161b; font-weight: 700; cursor: pointer; font-size: 14px;
+  }
+  #login-err { color: var(--red); font-size: 12px; margin-top: 10px; min-height: 15px; }
+
+  #app { display: none; height: 100vh; flex-direction: column; }
+  #topbar { display: flex; align-items: center; gap: 14px; padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  #topbar .title { font-weight: 700; color: var(--accent); }
+  #topbar .spacer { flex: 1; }
+  .btn {
+    padding: 6px 12px; border: 1px solid var(--line); border-radius: 7px; background: #232732;
+    color: var(--text); cursor: pointer; font-size: 13px;
+  }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #14161b; font-weight: 600; }
+  .btn.danger { border-color: var(--red); color: var(--red); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+  #layout { display: flex; flex: 1; min-height: 0; }
+  #sidebar { width: 280px; border-right: 1px solid var(--line); background: var(--panel); overflow-y: auto; padding: 10px 6px; }
+  .side-section { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; padding: 8px 10px 4px; }
+  .side-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 7px; cursor: pointer; font-size: 13.5px; }
+  .side-item:hover { background: #262b36; }
+  .side-item.active { background: #2d3342; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .dot.on { background: var(--green); } .dot.off { background: #666; }
+  .side-vmid { color: var(--muted); font-size: 11px; font-family: monospace; }
+  #content { flex: 1; overflow: auto; padding: 0; }
+
+  .pane-head { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  .pane-head h2 { margin: 0; font-size: 18px; }
+  .pane-head .sub { color: var(--muted); font-size: 12px; }
+  .pane-body { padding: 16px 18px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  tr:hover td { background: #20232b; }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+  .kv { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
+  .kv .k { color: var(--muted); }
+  .bar { height: 5px; border-radius: 3px; background: #2c303a; overflow: hidden; margin-top: 6px; }
+  .bar > div { height: 100%; background: var(--accent); }
+  .chart { background: #10121a; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 10px; }
+  .chart .label { font-size: 12px; color: var(--muted); padding: 6px 10px 0; }
+  .chart canvas { display: block; width: 100%; height: 70px; }
+  .tag { display: inline-block; background: #2a3a55; color: #9ec1f7; border-radius: 10px; font-size: 11px; padding: 1px 8px; margin-right: 4px; }
+
+  input.field, select.field { padding: 7px 10px; border-radius: 6px; border: 1px solid var(--line); background: #14161b; color: var(--text); font-size: 13px; }
+
+  pre.json { background: #10121a; border: 1px solid var(--line); border-radius: 8px; padding: 12px; font-size: 12px; overflow: auto; max-height: 55vh; }
+  #terminal-panel { background: #10121a; height: 100%; padding: 4px 8px; }
+  .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none; align-items: center; justify-content: center; z-index: 60; }
+  .modal { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 22px; width: 420px; }
+  .modal h3 { margin: 0 0 12px; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 10px 0; }
+  .row label { width: 110px; color: var(--muted); font-size: 13px; }
+  .row .field { flex: 1; }
+  .confirm { color: var(--red); font-size: 13px; }
+</style>
+</head>
+<body>
+  <!-- 로그인 -->
+  <div id="login-overlay">
+    <div id="login-card">
+      <h1>Bastion</h1>
+      <div class="sub">Proxmox VE 클러스터 관제 (Windows / Electron)</div>
+      <label>서버 프로필</label>
+      <select id="l-profile"><option value="">새 서버 입력</option></select>
+      <label>서버 주소</label>
+      <input id="l-host" placeholder="192.168.0.10" />
+      <label>포트</label>
+      <input id="l-port" value="8006" />
+      <label>사용자 ID</label>
+      <input id="l-user" value="root" />
+      <label>영역(Realm)</label>
+      <select id="l-realm"><option>pam</option><option>pve</option><option>ldap</option><option>openid</option></select>
+      <label>비밀번호</label>
+      <input id="l-pass" type="password" />
+      <label>2FA OTP (선택)</label>
+      <input id="l-otp" placeholder="6자리 코드" />
+      <label style="display:flex; align-items:center; gap:7px; cursor:pointer; margin-top:12px;">
+        <input id="l-save" type="checkbox" style="width:auto;" checked /> 비밀번호 저장 (OS 보안 스토리지)
+      </label>
+      <button id="l-del" class="btn danger" style="width:100%; margin-top:10px; display:none;">이 서버 프로필 삭제</button>
+      <button id="l-btn">연결</button>
+      <div id="login-err"></div>
+    </div>
+  </div>
+
+  <!-- 앱 -->
+  <div id="app">
+    <div id="topbar">
+      <span class="title">Bastion</span>
+      <span id="cluster-name" style="color: var(--muted); font-size: 12px;"></span>
+      <span class="spacer"></span>
+      <input id="search" class="field" placeholder="게스트 검색" style="width: 180px;" />
+      <button class="btn" id="btn-refresh">새로고침</button>
+      <button class="btn" id="btn-logout">로그아웃</button>
+    </div>
+    <div id="layout">
+      <div id="sidebar"></div>
+      <div id="content"></div>
+    </div>
+  </div>
+
+  <!-- 액션 확인 모달 -->
+  <div class="modal-bg" id="modal-bg">
+    <div class="modal">
+      <h3 id="modal-title">확인</h3>
+      <div id="modal-body" class="confirm"></div>
+      <div style="display:flex; gap:10px; margin-top:16px; justify-content:flex-end;">
+        <button class="btn" id="modal-cancel">취소</button>
+        <button class="btn danger" id="modal-ok">실행</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="vendor/xterm.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

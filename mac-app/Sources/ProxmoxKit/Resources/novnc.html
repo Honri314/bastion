@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<style>
+  html, body { margin: 0; height: 100%; background: #000; }
+  #screen { width: 100vw; height: 100vh; }
+
+  /* 연결 실패/끊김 알림 */
+  #banner {
+    display: none;
+    position: absolute; left: 12px; top: 12px;
+    padding: 6px 10px; border-radius: 8px;
+    color: #ffb0b0; background: rgba(120, 20, 20, 0.85);
+    font: 13px -apple-system, sans-serif; z-index: 10;
+  }
+</style>
+</head>
+<body>
+<div id="screen"></div>
+<div id="banner"></div>
+<script>
+  /* 네이티브 디버그 스트립으로 로그 전달 */
+  window.vncLog = (m) => {
+    const b = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.vncbridge;
+    if (b) b.postMessage(JSON.stringify({ t: "log", m: "" + m }));
+  };
+  window.vncLog("page load (브릿지 스크립트)");
+  const owLog = console.log.bind(console), owErr = console.error.bind(console);
+  console.log = (m) => { window.vncLog("[log] " + m); owLog(m); };
+  console.error = (m) => { window.vncLog("[err] " + m); owErr(m); };
+  window.addEventListener("error", (ev) => window.vncLog("[fatal] " + ev.message + " @" + ev.filename + ":" + ev.lineno));
+
+  function banner(msg) {
+    window.vncLog("[banner] " + msg);
+    const b = document.getElementById("banner");
+    if (b) { b.textContent = "VNC: " + msg; b.style.display = "block"; }
+  }
+
+  /* ★ 핵심: window.WebSocket을 Swift 브릿지로 교체 ★
+     RFB가 만드는 모든 WebSocket이 이 BridgeWS를 통해 Swift(NWConnection 수동 RFC6455)로 흐른다.
+     실제 네트워크 연결은 하나도 하지 않는다 (Standard WebSocket 금지). */
+  window.WebSocket = (function () {
+    function BridgeWS(url, protocols) {
+      this.url = url;
+      this.protocol = (typeof protocols === "string") ? protocols : (protocols && protocols[0]) || "binary";
+      this.binaryType = "arraybuffer";
+      this.readyState = 0; // CONNECTING — 네이티브가 vncReady() 호출 시 1로
+      this.bufferedAmount = 0;
+      this.extensions = "";
+      this.onopen = null; this.onmessage = null; this.onclose = null; this.onerror = null;
+      const self = this;
+      const post = (o) => {
+        const b = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.vncbridge;
+        if (b) b.postMessage(JSON.stringify(o));
+      };
+      window.vncLog("[bridge] 생성 url=" + url);
+      post({ t: "connect" });
+
+      window.vncMessage = (b64) => {
+        window.vncMsgCount = (window.vncMsgCount || 0) + 1;
+        const raw = atob(b64);
+        const u8 = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) u8[i] = raw.charCodeAt(i);
+        if (window.vncMsgCount <= 6) {
+          const ascii = Array.from(u8.slice(0, 20)).map(ch => (ch >= 32 && ch < 127) ? String.fromCharCode(ch) : ".").join("");
+          window.vncLog("recv #" + window.vncMsgCount + " len=" + u8.length + " '" + ascii + "'");
+        } else if (window.vncMsgCount === 7) {
+          window.vncLog("recv …(연속)");
+        }
+        // file:// 문서마다 opaque origin 이라 noVNC 내부 예외가 'Script error.'로 가려진다 → 여기서 잡아 로그로 보여준다
+        // 첫 메시지에서 핸들러 부착 여부 확인 (한번만)
+        if (window.vncMsgCount === 1) {
+          window.vncLog("dispatch 직전: onmessage=" + typeof self.onmessage + " onopen=" + typeof self.onopen + " rdy=" + self.readyState);
+        }
+        try {
+          if (self.onmessage) self.onmessage({ data: u8.buffer });
+        } catch (ex) {
+          window.vncLog("[jsErr] " + ex.message + " | " + String(ex.stack || "").split("\\n").slice(0, 3).join(" | "));
+        }
+      };
+      window.vncReady = () => {
+        window.vncLog("vncReady → onopen 발사");
+        if (self.readyState !== 1) {
+          self.readyState = 1;
+          try {
+            if (self.onopen) self.onopen({ type: "open" });
+          } catch (ex) {
+            window.vncLog("[jsErr][open] " + ex.message + " | " + String(ex.stack || "").split("\\n").slice(0, 3).join(" | "));
+          }
+        }
+      };
+      /* onopen 발사와 첫 RFB 데이터 전달을 하나의 JS 스크립트에서 순서 보장 */
+      window.vncStart = (b64, passB64) => {
+        if (passB64) window.vncPassword = atob(passB64);  // RFB VNC 암호 = vncticket
+        window.vncReady();
+        window.vncMessage(b64);
+      };
+      window.vncFail = (msg) => {
+        console.error("vncFail: " + msg);
+        banner(msg);
+        self.readyState = 3;
+        if (self.onerror) self.onerror({ message: msg });
+        if (self.onclose) self.onclose({ type: "close", code: 4999, reason: msg });
+      };
+      window.vncClose = () => {
+        if (self.readyState !== 3) {
+          self.readyState = 3;
+          if (self.onclose) self.onclose({ type: "close", code: 1000, reason: "closed" });
+        }
+      };
+    }
+    BridgeWS.prototype.send = function (data) {
+      let u8;
+      if (typeof data === "string") u8 = new TextEncoder().encode(data);
+      else if (data instanceof ArrayBuffer) u8 = new Uint8Array(data);
+      /* ArrayBufferView(Uint8Array 뷰 등)는 byteOffset/byteLength를 존중해야 한다.
+         noVNC는 new Uint8Array(sQ.buffer, 0, sQlen) 뷰를 넣는데, .buffer로 풀면
+         버퍼 전체(10240바이트, 뒤가 전부 0)가 서버로 나가 접속이 끊긴다. */
+      else if (ArrayBuffer.isView(data)) u8 = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+      else u8 = new Uint8Array(data);
+      window.vncSendCount = (window.vncSendCount || 0) + 1;
+      if (window.vncSendCount <= 3) {
+        const ascii = Array.from(u8.slice(0, 20)).map(ch => (ch >= 32 && ch < 127) ? String.fromCharCode(ch) : ".").join("");
+        window.vncLog("send #" + window.vncSendCount + " len=" + u8.length + " '" + ascii + "'");
+      }
+      let s = "";
+      for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
+      const b64 = btoa(s);
+      const b = window.webkit && window.webkit.messageHandlers.vncbridge;
+      if (b) b.postMessage(JSON.stringify({ t: "send", d: b64 }));
+    };
+    BridgeWS.prototype.close = function () {
+      window.vncLog("[bridge] close() 호출됨 (RFB에서 끊음)");
+      this.readyState = 3;
+      const b = window.webkit && window.webkit.messageHandlers.vncbridge;
+      if (b) b.postMessage(JSON.stringify({ t: "close" }));
+    };
+    BridgeWS.prototype.isOpen = function () { return this.readyState === 1; };
+    /* ★ 표준 WebSocket 상수: noVNC가 로드 시 ReadyStates = { OPEN: [WebSocket.OPEN, "open"] 등 }
+       을 확정하기 때문에, 이 상수가 없으면 BridgeWS의 숫자 readyState(1)를 "open"으로 매핑하지 못해
+       "unknown"이 되고, RFB의 첫 응답(flush)이 조용히 무시된다 (예외·로그 없음 — 그동안의 블랙 스크린 원인). */
+    BridgeWS.CONNECTING = 0;
+    BridgeWS.OPEN = 1;
+    BridgeWS.CLOSING = 2;
+    BridgeWS.CLOSED = 3;
+    return BridgeWS;
+  })();
+  window.vncLog("[bridge] WebSocket 교체 완료 — 이후 모든 WS는 Swift 브릿지로 감");
+</script>
+<!-- noVNC 번들: 로컬 리소스 (ESM은 file:// WKWebView에서 차단되므로 IIFE 번들) -->
+<script src="noVNC.js"></script>
+<script>
+  (function () {
+    if (typeof window.RFB !== "function") {
+      window.vncLog("[err] noVNC 번들 로드 실패 — window.RFB 없음");
+      banner("noVNC 라이브러리 로드 실패");
+      return;
+    }
+    window.vncLog("noVNC 번들 로드 완료 (로컬)");
+
+    let rfb;
+    try {
+      const el = document.getElementById("screen");
+      // URL은 BridgeWS에서 무시되므로 형식만 합법이면 됨
+      rfb = new window.RFB(el, "wss://pve.bridge", {
+        shared: true,
+        resizeSession: false
+      });
+      window.vncLog("RFB 객체 생성 완료, 브릿지 연결 대기");
+      window.vncLog("[체크] 이후 '[bridge] 생성' 로그가 없으면 WebSocket 교체 실패");
+    } catch (e) {
+      window.vncLog("[err] RFB 생성 실패: " + e.message);
+      window.vncLog("[err] stack: " + String((e.stack || "").split("\n").slice(0, 4).join(" | ")));
+      banner("RFB 초기화 오류: " + e.message);
+      return;
+    }
+
+    rfb.addEventListener("connect", () => console.log("RFB connected"));
+    rfb.addEventListener("connecterror", (e) => console.error("RFB connecterror", e.detail));
+    rfb.addEventListener("securityfailure", (e) => console.error("RFB securityfailure", e.detail && e.detail.reason));
+    rfb.addEventListener("credentialsrequired", () => {
+      window.vncLog("RFB 자격 증명 요청 → 티켓을 VNC 암호로 전송");
+      if (window.vncPassword) {
+        rfb.sendCredentials({ password: window.vncPassword });
+      } else {
+        console.error("window.vncPassword 없음 — VNC 암호 인증 실패 예상");
+      }
+    });
+    rfb.addEventListener("disconnect", (e) => {
+      console.error("RFB disconnected clean=" + (e.detail && e.detail.clean));
+      banner("연결 해제됨");
+    });
+    rfb.scaleViewport = true;
+    rfb.background = "#000";
+
+    /* 화면 렌더 진단: 연결 성공(데이터 흐름) 후에도 검은 화면이면
+       캔버스 크기/픽셀 상태를 확인해 렌더 문제와 데이터 문제를 분리 */
+    let samples = 0;
+    const canvasProbe = setInterval(() => {
+      samples++;
+      try {
+        const cv = document.querySelector("#screen canvas");
+        if (!cv) {
+          if (samples <= 3) window.vncLog("[canvas] 캔버스 없음 (연결 전)");
+        } else {
+          const ctx = cv.getContext("2d");
+          const w = cv.width, h = cv.height;
+          let nonBlack = -1;
+          try {
+            const px = ctx.getImageData(Math.max(0, (w >> 1) - 10), Math.max(0, (h >> 1) - 10), 20, 20).data;
+            nonBlack = 0;
+            for (let i = 0; i < px.length; i += 4) { if (px[i] > 8 || px[i + 1] > 8 || px[i + 2] > 8) nonBlack++; }
+          } catch (ex) { window.vncLog("[canvas] 픽셀 검사 실패: " + ex.message); }
+          if (samples <= 6) window.vncLog("[canvas] " + w + "×" + h + " 중앙 non-black=" + nonBlack + "/400");
+        }
+        if (samples >= 6) clearInterval(canvasProbe);
+      } catch (ex) {
+        window.vncLog("[canvas] 검사 예외: " + ex.message);
+        clearInterval(canvasProbe);
+      }
+    }, 2000);
+  })();
+</script>
+</body>
+</html>

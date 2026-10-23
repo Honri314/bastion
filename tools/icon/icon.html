@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+  html,body{margin:0;} svg{display:block;}
+</style></head><body>
+<svg width="1080" height="1080" viewBox="0 0 1080 1080" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1c212b"/>
+      <stop offset="1" stop-color="#0b0e14"/>
+    </linearGradient>
+    <linearGradient id="tower" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffb84d"/>
+      <stop offset="1" stop-color="#f5a623"/>
+    </linearGradient>
+    <linearGradient id="slat" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2a3040"/>
+      <stop offset="1" stop-color="#1a1f2b"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.45" r="0.55">
+      <stop offset="0" stop-color="#f5a623" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#f5a623" stop-opacity="0"/>
+    </radialGradient>
+    <mask id="round">
+      <rect x="0" y="0" width="1080" height="1080" rx="240" ry="240" fill="#fff"/>
+    </mask>
+  </defs>
+
+  <g mask="url(#round)">
+    <rect width="1080" height="1080" fill="url(#bg)"/>
+    <rect width="1080" height="1080" fill="url(#glow)"/>
+
+    <!-- 요새 탑 (battlements + 본체) -->
+    <g fill="url(#tower)">
+      <!-- 성벽 톱니 -->
+      <path d="M410 300 h40 v-40 h50 v40 h80 v-40 h50 v40 h40 v60 h-260 z"/>
+      <!-- 탑 본체 -->
+      <path d="M440 360 h200 v320 h-200 z"/>
+    </g>
+
+    <!-- 서버 슬랫 3단 -->
+    <g>
+      <rect x="470" y="400" width="140" height="52" rx="10" fill="url(#slat)"/>
+      <rect x="470" y="484" width="140" height="52" rx="10" fill="url(#slat)"/>
+      <rect x="470" y="568" width="140" height="52" rx="10" fill="url(#slat)"/>
+      <!-- 상태등: 초록/주황 -->
+      <circle cx="502" cy="426" r="9" fill="#6ee7a8"/>
+      <circle cx="528" cy="426" r="9" fill="#2a3040"/>
+      <circle cx="502" cy="510" r="9" fill="#6ee7a8"/>
+      <circle cx="528" cy="510" r="9" fill="#2a3040"/>
+      <circle cx="502" cy="594" r="9" fill="#e05b5b"/>
+      <circle cx="528" cy="594" r="9" fill="#2a3040"/>
+      <!-- 슬랙 하이라이트 -->
+      <rect x="560" y="418" width="34" height="16" rx="8" fill="#3d465c"/>
+      <rect x="560" y="502" width="34" height="16" rx="8" fill="#3d465c"/>
+      <rect x="560" y="586" width="34" height="16" rx="8" fill="#3d465c"/>
+    </g>
+
+    <!-- 기초/기단 -->
+    <rect x="410" y="680" width="260" height="46" rx="14" fill="url(#tower)" opacity="0.95"/>
+
+    <!-- 방패 아웃라인 -->
+    <path d="M540 130 c130 58 214 92 214 92 v300 c0 190 -118 320 -214 398 -96 -78 -214 -208 -214 -398 v-300 s84 -34 214 -92 z"
+          fill="none" stroke="#f5a623" stroke-opacity="0.35" stroke-width="14" stroke-linejoin="round"/>
+  </g>
+</svg>
+</body></html>
