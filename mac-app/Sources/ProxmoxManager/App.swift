@@ -17,6 +17,7 @@ enum NavSelection: Hashable {
 
 @main
 struct ProxmoxManagerApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var app = AppState()
 
     var body: some Scene {
@@ -58,6 +59,12 @@ struct ProxmoxManagerApp: App {
         }
         .windowStyle(.automatic)
     }
+}
+
+/// 마지막 창을 닫으면 프로세스도 함께 종료 —
+/// 닫았다가 도크 아이콘을 눌렀을 때 새로 실행돼 메인 창이 확실하게 다시 열리도록.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 }
 
 @MainActor
