@@ -55,3 +55,7 @@ npm start
 - VM 그래픽 콘솔(noVNC)은 cdn.jsdelivr 네트워크 필요 (오프라인 불가).
 - Ceph/방화벽/ACME 등 데이터센터 고급 관리 UI는 API 탐색기로 대체 가능.
 - 실제 클러스터에 연결한 E2E 테스트는 아직 수행되지 않음(빌드/런치 검증만 완료) — `build.log` 참조.
+
+## 다운로드 / 웹
+웹: https://ubuntu.tail543772.ts.net/bastion
+릴리스: https://github.com/Honri314/bastion/releases
